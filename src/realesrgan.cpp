@@ -549,8 +549,8 @@ int RealESRGAN::process(const ncnn::Mat& inimage, ncnn::Mat& outimage) const
                 cmd.submit_and_wait();
                 cmd.reset();
             }
-
-            fprintf(stderr, "%.2f%%\n", (float)(yi * xtiles + xi) / (ytiles * xtiles) * 100);
+            if(verbose==1)
+                fprintf(stderr, "%.2f%%\n", (float)(yi * xtiles + xi) / (ytiles * xtiles) * 100);
         }
 
         // download

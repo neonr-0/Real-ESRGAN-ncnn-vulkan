@@ -30,6 +30,8 @@ public:
     int tilesize;
     int prepadding;
 
+    int verbose;
+
 private:
     ncnn::Net net;
     ncnn::Pipeline* realesrgan_preproc;

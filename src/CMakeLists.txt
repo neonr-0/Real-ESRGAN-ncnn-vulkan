@@ -27,6 +27,9 @@ option(USE_STATIC_MOLTENVK "link moltenvk static library" OFF)
 find_package(Threads)
 find_package(OpenMP)
 find_package(Vulkan REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+#opencv2 library
+include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 find_program(GLSLANGVALIDATOR_EXECUTABLE NAMES glslangValidator PATHS $ENV{VULKAN_SDK}/bin NO_CMAKE_FIND_ROOT_PATH)
 message(STATUS "Found glslangValidator: ${GLSLANGVALIDATOR_EXECUTABLE}")
@@ -307,4 +310,5 @@ if(OPENMP_FOUND)
 endif()
 
 target_link_libraries(realesrgan-ncnn-vulkan ${REALESRGAN_LINK_LIBRARIES} -static-libstdc++)
+target_link_libraries(realesrgan-ncnn-vulkan ${OpenCV_LIBS})
 

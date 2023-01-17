@@ -26,6 +26,12 @@ namespace fs = std::filesystem;
 #include "stb_image_write.h"
 #endif // _WIN32
 #include "webp_image.h"
+//OpenCV image scaling
+#include "opencv_image.h"
+
+//Globals
+int g_scale_down = 1;
+int g_remove_input = 0;
 
 #if _WIN32
 #include <wchar.h>
@@ -115,6 +121,8 @@ static void print_usage()
     fprintf(stderr, "  -j load:proc:save    thread count for load/proc/save (default=1:2:2) can be 1:2,2,2:2 for multi-gpu\n");
     fprintf(stderr, "  -x                   enable tta mode\n");
     fprintf(stderr, "  -f format            output image format (jpg/png/webp, default=ext/png)\n");
+    fprintf(stderr, "  -d scale             downscale ratio (after upscaling, can be 1 - disabled, 2, 3, 4. default=1)\n");
+    fprintf(stderr, "  -r                   delete input file\n");
     fprintf(stderr, "  -v                   verbose output\n");
 }
 
@@ -383,26 +391,55 @@ void* save(void* args)
             fs::create_directories(parent_path);
         }
 
+        /* --------------------- Resize down -------------------*/
+        unsigned char* outimage_resized = 0;
+        if (g_scale_down > 1)
+            outimage_resized = cv_resize_image((unsigned char*)v.outimage.data, v.outimage.h, v.outimage.w, g_scale_down, v.outimage.elempack);
+
+
         if (ext == PATHSTR("webp") || ext == PATHSTR("WEBP"))
         {
-            success = webp_save(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, (const unsigned char*)v.outimage.data);
+            if (g_scale_down > 1)
+                success = webp_save(v.outpath.c_str(), v.outimage.w / g_scale_down, v.outimage.h / g_scale_down, v.outimage.elempack, (unsigned char*)outimage_resized);
+            else
+                success = webp_save(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, (const unsigned char*)v.outimage.data);
         }
         else if (ext == PATHSTR("png") || ext == PATHSTR("PNG"))
         {
 #if _WIN32
-            success = wic_encode_image(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data);
+            if (g_scale_down > 1)
+                success = wic_encode_image(v.outpath.c_str(), v.outimage.w / g_scale_down, v.outimage.h / g_scale_down, v.outimage.elempack, (void*)outimage_resized);
+            else
+                success = wic_encode_image(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data);
 #else
-            success = stbi_write_png(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data, 0);
+            if (g_scale_down > 1)
+                success = stbi_write_png(v.outpath.c_str(), v.outimage.w / g_scale_down, v.outimage.h / g_scale_down, v.outimage.elempack, (void*)outimage_resized, 0);
+            else
+                success = stbi_write_png(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data, 0);
 #endif
         }
         else if (ext == PATHSTR("jpg") || ext == PATHSTR("JPG") || ext == PATHSTR("jpeg") || ext == PATHSTR("JPEG"))
         {
 #if _WIN32
-            success = wic_encode_jpeg_image(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data);
+            if (g_scale_down > 1)
+                success = wic_encode_jpeg_image(v.outpath.c_str(), v.outimage.w / g_scale_down, v.outimage.h / g_scale_down, v.outimage.elempack, (void*)outimage_resized);
+            else
+                success = wic_encode_jpeg_image(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data);
 #else
-            success = stbi_write_jpg(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data, 100);
+            if (g_scale_down > 1)
+                success = stbi_write_jpg(v.outpath.c_str(), v.outimage.w / g_scale_down, v.outimage.h / g_scale_down, v.outimage.elempack, (void*)outimage_resized, 100);
+            else
+                success = stbi_write_jpg(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data, 100);
 #endif
         }
+        // cleanup
+        if(outimage_resized)
+            delete outimage_resized;
+        // Delete input file if option selected
+        if(g_remove_input==1)
+            _wremove(v.inpath.c_str());
+        wprintf(L"Saving file: %s\n", v.outpath.c_str());
+
         if (success)
         {
             if (verbose)
@@ -451,7 +488,7 @@ int main(int argc, char** argv)
 #if _WIN32
     setlocale(LC_ALL, "");
     wchar_t opt;
-    while ((opt = getopt(argc, argv, L"i:o:s:t:m:n:g:j:f:vxh")) != (wchar_t)-1)
+    while ((opt = getopt(argc, argv, L"i:o:s:t:m:n:g:j:f:d:vxhr")) != (wchar_t)-1)
     {
         switch (opt)
         {
@@ -489,6 +526,12 @@ int main(int argc, char** argv)
         case L'x':
             tta_mode = 1;
             break;
+        case L'd':
+            g_scale_down = _wtoi(optarg);
+            break;
+        case L'r':
+            g_remove_input = 1;
+            break;
         case L'h':
         default:
             print_usage();
@@ -497,7 +540,7 @@ int main(int argc, char** argv)
     }
 #else // _WIN32
     int opt;
-    while ((opt = getopt(argc, argv, "i:o:s:t:m:n:g:j:f:vxh")) != -1)
+    while ((opt = getopt(argc, argv, "i:o:s:t:m:n:g:j:f:d:vxhr")) != -1)
     {
         switch (opt)
         {
@@ -534,6 +577,12 @@ int main(int argc, char** argv)
             break;
         case 'x':
             tta_mode = 1;
+            break;
+        case L'd':
+            g_scale_down = _wtoi(optarg);
+            break;
+        case L'r':
+            g_remove_input = 1;
             break;
         case 'h':
         default:
@@ -806,6 +855,7 @@ int main(int argc, char** argv)
             realesrgan[i]->scale = scale;
             realesrgan[i]->tilesize = tilesize[i];
             realesrgan[i]->prepadding = prepadding;
+            realesrgan[i]->verbose = verbose;
         }
 
         // main routine
